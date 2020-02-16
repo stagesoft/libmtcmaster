@@ -1,0 +1,13 @@
+MTC Midi Time Code Generator
+
+
+Build Dependencies
+------------------
+
+* rtmidi development packages
+
+
+Copyright (C) 2019 GPLv2
+ Ion Reguera ion@stagelab.net
+
+Stagelab www.stagelab.net
