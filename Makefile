@@ -26,7 +26,7 @@ $(NAME)_test: lib$(NAME).so
 	$(CC) $(NAME)_test.cpp -o $@ -L. -l$(NAME)
 
 lib$(NAME).so: lib$(NAME).so.$(VERSION)
-	ln -s lib$(NAME).so.$(MAJOR) lib$(NAME).so
+	ln -s lib$(NAME).so.$(MAJOR).$(MINOR) lib$(NAME).so
 
 lib$(NAME).so.$(VERSION): $(OBJECTS)
 	$(CC) -shared -Wl,-soname,lib$(NAME).so.$(MAJOR) $(OBJECTS) -o $@ -lpthread -lrtmidi

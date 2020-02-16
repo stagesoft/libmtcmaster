@@ -1,5 +1,7 @@
 MTC Midi Time Code Generator
 
+Included Ruby ffi module for accesing library functions from ruby (requires ruby ffi)
+
 
 Build Dependencies
 ------------------

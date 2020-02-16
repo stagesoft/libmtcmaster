@@ -23,12 +23,14 @@ using std::string;
             MTCSender::startThread();
         }
 
+        // stop the thread and send position packet
         void MTCSender::pause(){
            MTCSender::stopThread();
             std::this_thread::sleep_for(std::chrono::milliseconds(4));
             setTime(1);
         }
 
+        // stop the thread and set mtc time to 0
         void MTCSender::stop(){
             MTCSender::stopThread();
             std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Temp fix, we should check thread as finished
@@ -36,8 +38,8 @@ using std::string;
 
         }
 
+        //Start mtc sending thread
         void MTCSender::startThread(){
-         //   std::unique_lock<std::mutex> lck(mutex);
             if(threadRunning || !threadDone){
                 std::cout << "Thread allready running" << std::endl;
                 return;
@@ -45,7 +47,6 @@ using std::string;
 
             threadDone = false;
             threadRunning = true;
-      //      this->mutexBlocks = true;
 
             std::thread threadObj(&MTCSender::threadedFunction, this);
             setScheduling(threadObj, SCHED_RR, 99);
@@ -63,7 +64,7 @@ using std::string;
             return threadRunning;
         }
 
-
+         // Set MTC time passing new time as nanos, and sent MTC possition packet, or send current possition passing 1 to the func
         void MTCSender::setTime(uint64_t nanos = 1) {
             if (nanos == 1) {
                 sendMtcPosition();
@@ -76,8 +77,8 @@ using std::string;
         }
 
 
-
-        bool MTCSender::sendMtcPosition(){
+        //send MTC current position to clients
+        bool MTCSender::sendMtcPosition(){  
             vector<unsigned char> mtc_full;
             mtc_full.push_back(MIDI_SYSEX);
             mtc_full.push_back(0x7F);
@@ -94,10 +95,10 @@ using std::string;
 
             return true;
 
-              // Program change: 192, 5           
 
         }
 
+       // convert nanosecond to MTC time format
        void MTCSender::nanosToTime(uint64_t nanos) {
 
                 int millis = nanos / 1000000;
@@ -109,7 +110,8 @@ using std::string;
 
 
         }
-
+        
+        // return MTC time as string
         string MTCSender::timeAsString()
         {
 
@@ -139,7 +141,8 @@ using std::string;
 
         }
 
-        void MTCSender::setScheduling(std::thread &th, int policy, int priority){
+        //Set thread priority
+        void MTCSender::setScheduling(std::thread &th, int policy, int priority){ //try to get hihg tread priority (requires privileges)
             sched_param sch_params;
             sch_params.sched_priority = priority;
             if(pthread_setschedparam(th.native_handle(), policy, &sch_params)) {
@@ -147,8 +150,7 @@ using std::string;
             }
         }
 
-        void MTCSender::threadedFunction(){
-
+        void MTCSender::threadedFunction(){ // MTC generation
 
                 uint64_t elapsed = 0;
                 vector<unsigned char> mtc_quarter {0,0};
@@ -178,9 +180,9 @@ using std::string;
                 struct timespec delay;
                 delay.tv_sec = 0;
 
+                // Store time now in nanosecons as or new 0 MTC time
                 time_zero = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
-                lastQuarterSent = time_zero;
-         //       time_zero -= mtc_time;
+                lastQuarterSent = time_zero; // starting, first mtc quarter frame pakect
 
 
                 int type = 0;
@@ -189,7 +191,7 @@ using std::string;
                 while(isThreadRunning()){
 
 
-                    unsigned char c = 0;
+                    unsigned char c = 0; // build a MTC quarter frame packet
 
                             switch (type) {
                             case 0:
@@ -218,43 +220,50 @@ using std::string;
                                 break;
                             }
 
-                        // log timecode
-                          //    std::cout << "\r" << timeAsString() << std::flush;
+
 
                             if (++type == 8) {
                                 type = 0;
                             }
 
-                        mtc_quarter.push_back(MIDI_TIME_CODE);
-                        mtc_quarter.push_back(c);
+                        mtc_quarter.push_back(MIDI_TIME_CODE); // insert MTC packet indentificator
+                        mtc_quarter.push_back(c); // insert quarter frame bits
 
                         
-                        midiOut->sendMessage( &mtc_quarter );
+                        midiOut->sendMessage( &mtc_quarter ); // send the quarter frame packet
 
                         mtc_quarter.clear();
 
-
+                        //store time last quarter frame was sent
                         time_now = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
 
+                        // schededule time to send next quarter frame at 25 fps 
+                        // 
                         nextQuarterToSend = lastQuarterSent + 10000000;
                         lastQuarterSent = nextQuarterToSend;
 
-                        if (nextQuarterToSend < time_now) {
+                        if (nextQuarterToSend < time_now) { //next quarter to send time is in the past, should never occur, only for debug
                             std::cout << std::dec << "TIME OUT!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
                         }
 
+                        // calculate how much time we have to wait until sending next packet
                         elapsed = (time_now - time_zero)+ nextQuarterToSend - time_now;
-                        delay.tv_nsec = nextQuarterToSend - time_now ;
+                        delay.tv_nsec = nextQuarterToSend - time_now ; 
                         nanosToTime(mtc_time + elapsed);
-                        nanosleep(&delay, NULL);
+                        nanosleep(&delay, NULL); //wait until time to send next packet
                 }
 
+                // Thread not running, STOP or PAUSE
+                // if STOP timecode will be reset to 0 so this roundig is only for pause 
+                // TODO: only run this code if pause was called ?
 
-                mtc_time += elapsed;
+                mtc_time += elapsed; // update mtc time
+
+                //rounding for pause (if pause time is betewn frames round it to nearext next frame)
                 std::cout << " - mtc time de pause:" << timeAsString() << " - " << mtc_time << std::endl;
                 nanosToTime(mtc_time);
                 mtc_time = (uint64_t)mtc_time_arr[0]*40*1000000 + (uint64_t)mtc_time_arr[1]*1000*1000000 + (uint64_t)mtc_time_arr[2]*60*1000*1000000 + (uint64_t)mtc_time_arr[3]*3600*1000*1000000 ; // redondeo para empezar al princio del frame
-                std::cout << " -  mtc time redonde" << timeAsString() << " - " << mtc_time << std::endl;
+                std::cout << " -  mtc time redondeo" << timeAsString() << " - " << mtc_time << std::endl;
         };
 
 

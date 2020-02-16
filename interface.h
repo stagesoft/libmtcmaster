@@ -1,3 +1,5 @@
+// C interface
+
 #include "mtcmaster.h"
 #if defined(__cplusplus)
 extern "C" {
