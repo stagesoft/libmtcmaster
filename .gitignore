@@ -1,32 +1,93 @@
-# Prerequisites
-*.d
+###########################
+# ignore generated binaries
+# but not the data folder
+###########################
 
-# Compiled Object files
-*.slo
-*.lo
+/bin/*
+!/bin/data/
+
+############
+# user added
+############
+/test_app/mtcmaster_test_app
+
+#########
+# general
+#########
+
+[Bb]uild/
+[Oo]bj/
 *.o
-*.obj
-
-# Precompiled Headers
-*.gch
-*.pch
-
-# Compiled Dynamic libraries
 *.so
-*.dylib
-*.dll
+*.so.*
+[Dd]ebug*/
+[Rr]elease*/
+*.mode*
+*.app/
+*.pyc
+.svn/
+*.log
+#Local Backups
+*.[Ss]ave
 
-# Fortran module files
-*.mod
-*.smod
+########################
+# IDE files which should
+# be ignored
+########################
 
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
+# XCode
+*.pbxuser
+*.perspective
+*.perspectivev3
+*.mode1v3
+*.mode2v3
+# XCode 4
+xcuserdata
+*.xcworkspace
 
-# Executables
-*.exe
-*.out
-*.app
+# Code::Blocks
+*.depend
+*.layout
+
+# Visual Studio
+*.sdf
+*.opensdf
+*.suo
+*.pdb
+*.ilk
+*.aps
+ipch/
+.vscode/
+
+# Eclipse
+.metadata
+local.properties
+.externalToolBuilders
+
+##################
+# operating system
+##################
+
+# Linux
+*~
+# KDE
+.directory
+.AppleDouble
+
+# OSX
+.DS_Store
+*.swp
+*~.nib
+# Thumbnails
+._*
+
+# Windows
+# Image file caches
+Thumbs.db
+# Folder config file
+Desktop.ini
+
+# Android
+.csettings
+.vscode/tasks.json
+.vscode/tasks.json
