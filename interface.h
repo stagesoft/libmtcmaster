@@ -15,6 +15,8 @@ void* MTCSender_create();
 void MTCSender_release(void* mtcsender);
 
 // Main MTC control functions
+void MTCSender_openPort(void* mtcsender, unsigned int portnumber, const char* portname);
+
 void MTCSender_play(void* mtcsender);
 
 void MTCSender_stop(void* mtcsender);
