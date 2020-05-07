@@ -1,6 +1,6 @@
 #Compiler, compiler flags and linker flags
 CXX = g++
-CXXFLAGS = -Wall -Werror -Wextra -fPIC -std=c++17 -O3 -g -I . -I ..
+CXXFLAGS = -Wall -Werror -Wextra -std=c++17 -O3 -g -I . -I ..
 LDFLAGS =  -fsanitize=address
 LBLIBS = -lmtcmaster
 

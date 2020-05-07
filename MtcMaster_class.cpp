@@ -45,11 +45,41 @@ MtcMaster::MtcMaster(   RtMidi::Api api,
         currentFRBits = 0x60;
         break;
     }
+
+    try {
+        openPort(0, "MTCPort");
+    }
+    catch ( RtMidiError &error ) {
+        error.printMessage();
+        exit( EXIT_FAILURE );
+    }
+
+    try {
+        logFileStream.open("/run/log/libmtcmaster.log", std::ofstream::out | std::ofstream::app);
+    }
+    catch (system_error &error) {
+        exit( EXIT_FAILURE );
+    }
+
+    logFileStream << endl << endl << "________________________________________" << endl << endl;
+    logTime();
+    logFileStream << "MTC Master Initialized" << endl << endl;
+}
+
+MtcMaster::~MtcMaster(void) {
+    instanceCount--;
+
+    logFileStream << endl;
+    logTime();
+    logFileStream << "MTC Master finished succesfully" << endl << endl;
+
+    logFileStream.close();
 }
 
 ////////////////////////////////////////////
 // Member methods
 
+//--------------------------------------------------------------
 void MtcMaster::sendMtcPosition(void)
 {
     /////////////////////////////////////////////////////////////////////
@@ -58,20 +88,20 @@ void MtcMaster::sendMtcPosition(void)
 
     vector<unsigned char> mtcFullMessage; // Char vector to build the MTC Full message
 
-    mtcFullMessage.push_back(MIDI_SYSEX);     // Midi SisEx message code (F0)
-    mtcFullMessage.push_back(0x7F);           // F0 + 7F -> Real Time Universal System Exclusive Header
-    mtcFullMessage.push_back(0x7F);           // SysEx channel - 7F -> Everyone
-    mtcFullMessage.push_back(0x01);           // SubID01 -> 01 -> MIDI Time Code
-    mtcFullMessage.push_back(0x01);           // SubID02 -> 01 -> Full Time Code Message
+    mtcFullMessage.push_back(MIDI_STATUS_SYSEX);    // Midi SisEx message code (F0)
+    mtcFullMessage.push_back(0x7F);                 // F0 + 7F -> Real Time Universal System Exclusive Header
+    mtcFullMessage.push_back(0x7F);                 // SysEx channel - 7F -> Everyone
+    mtcFullMessage.push_back(0x01);                 // SubID01 -> 01 -> MIDI Time Code
+    mtcFullMessage.push_back(0x01);                 // SubID02 -> 01 -> Full Time Code Message
 
 
     mtcFullMessage.push_back((unsigned char)currentFRBits | (mtcTimeVector[3] & 0x1f));
                                                             // Time code Bits + Hours
 
-    mtcFullMessage.push_back((mtcTimeVector[2] & 0xff));   // Minutes
-    mtcFullMessage.push_back((mtcTimeVector[1] & 0xff));   // Seconds
-    mtcFullMessage.push_back((mtcTimeVector[0] & 0xff));   // Frames
-    mtcFullMessage.push_back(MIDI_SYSEX_END);             // SysEx End of full message (F7)
+    mtcFullMessage.push_back((mtcTimeVector[2] & 0xff));    // Minutes
+    mtcFullMessage.push_back((mtcTimeVector[1] & 0xff));    // Seconds
+    mtcFullMessage.push_back((mtcTimeVector[0] & 0xff));    // Frames
+    mtcFullMessage.push_back(MIDI_STATUS_SYSEX_END);        // SysEx End of full message (F7)
 
     this->sendMessage( &mtcFullMessage );
 
@@ -79,11 +109,13 @@ void MtcMaster::sendMtcPosition(void)
     std::this_thread::sleep_for(std::chrono::milliseconds(4));
 }
 
+//--------------------------------------------------------------
 void MtcMaster::pause()
 {
     play();
 }
 
+//--------------------------------------------------------------
 void MtcMaster::play()
 {
     if (playing)
@@ -110,12 +142,18 @@ void MtcMaster::play()
         //std::this_thread::sleep_for(std::chrono::milliseconds(4));
 
         thread threadObj(&MtcMaster::threadedMethod, this); // Our thread object
-        setScheduling(threadObj, SCHED_RR, 99); // Our thread scheduling
+        try {
+            setScheduling(threadObj, SCHED_RR, 99); // Our thread scheduling
+        }
+        catch ( RtMidiError &error ) {
+            error.printMessage();
+        }
 
         threadObj.detach();
     }
 }
 
+//--------------------------------------------------------------
 void MtcMaster::stop()
 {
     // Just changing the flag the thread stops
@@ -133,6 +171,7 @@ void MtcMaster::stop()
     //std::this_thread::sleep_for(std::chrono::milliseconds(150));
 }
 
+//--------------------------------------------------------------
 void MtcMaster::setTime(uint64_t nanosecs = 0)
 {
     bool wasPlaying = playing;
@@ -153,6 +192,7 @@ void MtcMaster::setTime(uint64_t nanosecs = 0)
     if (wasPlaying) play();
 }
 
+//--------------------------------------------------------------
 void MtcMaster::threadedMethod(void)
 {
     unsigned char c = 0;    // Working char variable to build the messages
@@ -260,7 +300,7 @@ void MtcMaster::threadedMethod(void)
                 LSB = true; // Reset LSB flag to alternate
             }
 
-            mtcMessage.push_back(MIDI_TIME_CODE);  // Introducing the MTC code byte (F1)
+            mtcMessage.push_back(MIDI_STATUS_TIME_CODE);  // Introducing the MTC code byte (F1)
             mtcMessage.push_back(c);               // Then introducint the rest of the message
 
             sendMessage( &mtcMessage );             // And then sending the message
@@ -272,10 +312,11 @@ void MtcMaster::threadedMethod(void)
             // Getting again the current time from the system
             currentTime = chrono::duration_cast<chrono::nanoseconds>(chrono::high_resolution_clock::now().time_since_epoch()).count();
 
-            if (nextQuarterToSend < currentTime)
+            if (currentTime > nextQuarterToSend)
             {
                 // We are out of time for the next quarter
-                cerr << "TIME OUT!!!!!!!!!!!!!!!!!!!!!!!!!!!! Diff : " << (nextQuarterToSend - currentTime) << endl;
+                logTime();
+                logFileStream << "TIME OUT!!! Curr Time: " << setw(22) << currentTime << " is > NextQ: " << setw(22) << nextQuarterToSend<< " Diff : " << setw(20) << (uint64_t) (currentTime - nextQuarterToSend) << endl;
             }
             else
             {
@@ -311,6 +352,7 @@ void MtcMaster::threadedMethod(void)
     mtx.unlock();
 }
 
+//--------------------------------------------------------------
 void MtcMaster::fillMtcTimeVector(uint64_t nanos)
 {
     // The frequency of our frames in miliseconds
@@ -335,6 +377,7 @@ void MtcMaster::fillMtcTimeVector(uint64_t nanos)
     mtcTimeVector.push_back((uint64_t)(nanos / (uint64_t)(3600e9)) % 24);      // HOURS 3
 }
 
+//--------------------------------------------------------------
 string MtcMaster::mtcTimeVectorString(void)
 {
     string timeAsString("");
@@ -359,6 +402,7 @@ string MtcMaster::mtcTimeVectorString(void)
     return timeAsString;
 }
 
+//--------------------------------------------------------------
 string MtcMaster::getApiString(void)
 {
     switch(getCurrentApi())
@@ -380,20 +424,61 @@ string MtcMaster::getApiString(void)
 
 }
 
+//--------------------------------------------------------------
 uint64_t MtcMaster::getTime(void)
 {
     return mtcTime;
 }
 
-// Scheduling the threa priority to ensure an accurate timing
+//--------------------------------------------------------------
+// Scheduling the thread priority to ensure an accurate timing
 void MtcMaster::setScheduling(std::thread &th, int policy, int priority)
 {
     sched_param sch_params;
     sch_params.sched_priority = priority;
 
+    string errorText = "";
+
     if (pthread_setschedparam(th.native_handle(), policy, &sch_params) != 0)
     {
-        cout << "Failed to set Thread scheduling : " << error_code() << endl;
-        cout << "Policy : " << policy << " Priority : " << sch_params.sched_priority << endl;
+
+        logTime();
+        logFileStream  << "Failed to set Thread scheduling : " << error_code() << endl;
+        logFileStream << "Policy : " << policy << " Priority : " << sch_params.sched_priority << endl;
+
+        throw RtMidiError("[ERR] libmtcmaster thread scheduling error", RtMidiError::Type::THREAD_ERROR);
     }
 }
+
+//--------------------------------------------------------------
+void MtcMaster::logTime(void) {
+    time_t now = time(nullptr);
+
+    logFileStream << put_time(localtime(&now), "%F %T") << " ";
+}
+
+//--------------------------------------------------------------
+void MtcMaster::subtractNanos(const uint64_t diff) {
+    if (mtcTime > diff) {
+        mtcTime -= diff;
+    } 
+    else {
+        mtcTime = 0;
+    }
+
+    setTime(mtcTime);
+}
+
+//--------------------------------------------------------------
+void MtcMaster::addNanos(const uint64_t diff) {
+    // Let's say we cannot go further than 24 hours. We'll see...
+    if (mtcTime + diff > 86400000000000) {
+        mtcTime = 0;
+    }
+    else {
+        mtcTime += diff;
+    }
+
+    setTime(mtcTime);
+}
+

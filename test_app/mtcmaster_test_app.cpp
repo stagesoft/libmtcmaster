@@ -40,14 +40,21 @@ int main()
     screen.clrScr();
     screen.printAt(0, 0);
 
-	MtcMaster *myMtcMaster = new MtcMaster(); // Our MTC Master Object
+	MtcMaster *myMtcMaster = 0;
+    
+    try {
+        myMtcMaster = new MtcMaster(); // Our MTC Master Object
+    }
+    catch ( RtMidiError &error ) {
+        error.printMessage();
+        exit( EXIT_FAILURE );
+    }
+
     cout << "Initializing..." << endl;
     cout << "Number of MTC Master instances: " << myMtcMaster->instanceCount << endl;
     cout << "Current API: " << myMtcMaster->getApiString() << endl;
 	cout << "Current Frame Rate: " << (unsigned short)myMtcMaster->getFrameRate() << endl;
-    myMtcMaster->openPort(0, "SLMTCPort");
-
-
+    
 	screen.printAt(10, 0, "Status: ");
 	screen.mvCursor(19, 0);
     cout << "<1-9> para \"Avanzar n minutos\" - <-> para \"Retroceder 1 minuto\"" << endl;

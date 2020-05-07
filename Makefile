@@ -28,3 +28,8 @@ lib$(NAME).so.$(VERSION): $(OBJ)
 
 clean:
 	rm -rf $(OBJ)
+
+install: lib$(NAME).so.$(VERSION)
+	sudo cp lib$(NAME).so.$(VERSION) /usr/lib/
+	sudo ln -sf /usr/lib/lib$(NAME).so.$(VERSION) /usr/lib/lib$(NAME).so
+	sudo ln -sf /usr/lib/lib$(NAME).so.$(VERSION) /usr/lib/lib$(NAME).so.$(MAJOR)
