@@ -6,15 +6,19 @@ import pathlib
 
 class MtcSender():
 
-    def __init__(self, fps):
+    def __init__(self, fps=25, port=0, portname="SLMTCPort"):
         # Load the shared library into ctypes
         libname = pathlib.Path.cwd().parent.parent / "libmtcmaster/libmtcmaster.so"
         self.mtc_lib = ctypes.CDLL(libname)
         self.mtc_lib.MTCSender_create.restype = ctypes.c_void_p
         
         self.mtcproc = self.mtc_lib.MTCSender_create()
+        self.port=port
+        self.char_portname=portname.encode('utf-8')
+        self.mtc_lib.MTCSender_openPort.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_char_p]
+        self.mtc_lib.MTCSender_openPort(self.mtcproc, self.port, self.char_portname)
 
-        self.fps = 25 ### fps ##### TO-DO ####
+        self.fps = fps #### TO DO; Pass fps to the library #########
 
     def __del__(self): 
         self.mtc_lib.MTCSender_release(ctypes.c_void_p(self.mtcproc))

@@ -1,11 +1,16 @@
 #include "interface.h"
 
 /*extern "C"*/ void* MTCSender_create() {
-    return new MtcMaster;
+    return new MtcMaster();
 }
 
 /*extern "C"*/ void MTCSender_release(void* mtcsender) {
     delete static_cast<MtcMaster*>(mtcsender);
+}
+
+/*extern "C"*/ void MTCSender_openPort(void* mtcsender, unsigned int portnumber, const char* portname) {
+    std::string sportname(portname);
+    static_cast<MtcMaster*>(mtcsender)->openPort(portnumber, sportname);
 }
 
 /*extern "C"*/ void MTCSender_play(void* mtcsender) {
