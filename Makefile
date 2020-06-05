@@ -4,6 +4,11 @@ CXXFLAGS = -Wall -Werror -Wextra -std=c++17 -O3 -fPIC -g -I /usr/include/rtmidi
 LDFLAGS =  -fsanitize=address
 LBLIBS = -lpthread -lrtmidi
 
+#PREFIX is environment variable, but if it is not set, then set default value
+ifeq ($(prefix),)
+    prefix := /usr/local
+endif
+
 # Version ids
 MAJOR := 0
 MINOR := 1
@@ -29,7 +34,11 @@ lib$(NAME).so.$(VERSION): $(OBJ)
 clean:
 	rm -rf $(OBJ)
 
+
+
 install: lib$(NAME).so.$(VERSION)
-	sudo cp lib$(NAME).so.$(VERSION) /usr/lib/
-	sudo ln -sf /usr/lib/lib$(NAME).so.$(VERSION) /usr/lib/lib$(NAME).so
-	sudo ln -sf /usr/lib/lib$(NAME).so.$(VERSION) /usr/lib/lib$(NAME).so.$(MAJOR)
+	install -d $(DESTDIR)$(prefix)/lib/
+	install -m 644 lib$(NAME).so.$(VERSION) $(DESTDIR)$(prefix)/lib/
+	ln -sf $(DESTDIR)$(prefix)/lib/lib$(NAME).so.$(VERSION) $(DESTDIR)$(prefix)/lib/lib$(NAME).so
+	ln -sf $(DESTDIR)$(prefix)/lib/lib$(NAME).so.$(VERSION) $(DESTDIR)$(prefix)/lib/lib$(NAME).so.$(MAJOR)
+
