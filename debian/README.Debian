@@ -1,0 +1,7 @@
+libmtcmaster for Debian
+
+Midi timecode generator library
+ Libmtcmaster is a library to generate Midi time code (MTC)
+ and a is part of the cuems project
+
+ -- Ion Reguera <ion@stagelab.net>  Fri, 05 Jun 2020 11:54:13 +0200

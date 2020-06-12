@@ -1,0 +1,18 @@
+Source: libmtcmaster
+Section: Libraries
+Priority: optional
+Maintainer: Ion Reguera <ion@stagelab.net>
+Build-Depends: debhelper (>=11~), dh-python, python3, librtmidi-dev
+Standards-Version: 4.1.4
+Homepage: https://github.com/stagesoft/stagesoft-project
+Vcs-Git: https://github.com/stagesoft/libmtcmaster.git
+Vcs-Browser: https://github.com/stagesoft/libmtcmaster.git
+X-Python3-Version: >= 3.2
+
+Package: libmtcmaster
+Architecture: any
+Multi-Arch: foreign
+Depends: ${misc:Depends}, ${python3:Depends}
+Description: Midi timecode generator library
+ Libmtcmaster is a library to generate Midi time code (MTC)
+ and a is part of the cuems project
