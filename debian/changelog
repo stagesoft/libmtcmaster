@@ -1,3 +1,10 @@
+libmtcmaster (0.0.1-1) UNRELEASED; urgency=low
+
+  * Fix Makefile install simlinks
+    
+
+ -- Ion Reguera <ion@stagelab.net>  Tue, 16 Jun 2020 17:54:13 +0200
+
 libmtcmaster (0.0.0-1) UNRELEASED; urgency=low
 
   * Initial pre-release. 
