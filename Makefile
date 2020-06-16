@@ -32,7 +32,7 @@ lib$(NAME).so.$(VERSION): $(OBJ)
 	$(CXX) -shared -Wl,-soname,lib$(NAME).so.$(MAJOR) $(OBJ) -o $@ $(LBLIBS)
 
 clean:
-	rm -rf $(OBJ)
+	rm -rf ${OBJ} lib$(NAME).so.$(MAJOR).$(MINOR) lib$(NAME).so.$(MAJOR) lib$(NAME).so
 
 
 
