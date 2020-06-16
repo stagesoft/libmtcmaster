@@ -19,26 +19,28 @@ SRC := $(wildcard *.cpp)
 INC := $(wildcard *.h)
 OBJ := $(SRC:.cpp=.o)
 
-.PHONY: clean
+.PHONY: clean install all
 
 all: lib
 
-lib: lib$(NAME).so
+lib: lib$(NAME).so lib$(NAME).so.$(MAJOR)
 
 lib$(NAME).so: lib$(NAME).so.$(VERSION)
-	ln -sf lib$(NAME).so.$(MAJOR).$(MINOR) lib$(NAME).so
+	ln -sf lib$(NAME).so.$(VERSION) lib$(NAME).so
+
+lib$(NAME).so.$(MAJOR): lib$(NAME).so.$(VERSION)
+	ln -sf lib$(NAME).so.$(VERSION)$(MAJOR) lib$(NAME).so.$(MAJOR)
 
 lib$(NAME).so.$(VERSION): $(OBJ)
 	$(CXX) -shared -Wl,-soname,lib$(NAME).so.$(MAJOR) $(OBJ) -o $@ $(LBLIBS)
 
 clean:
-	rm -rf ${OBJ} lib$(NAME).so.$(MAJOR).$(MINOR) lib$(NAME).so.$(MAJOR) lib$(NAME).so
+	rm -rf ${OBJ} lib$(NAME).so.$(VERSION) lib$(NAME).so.$(MAJOR) lib$(NAME).so
 
 
 
-install: lib$(NAME).so.$(VERSION)
+install: lib
 	install -d $(DESTDIR)$(prefix)/lib/
 	install -m 644 lib$(NAME).so.$(VERSION) $(DESTDIR)$(prefix)/lib/
-	ln -sf $(DESTDIR)$(prefix)/lib/lib$(NAME).so.$(VERSION) $(DESTDIR)$(prefix)/lib/lib$(NAME).so
-	ln -sf $(DESTDIR)$(prefix)/lib/lib$(NAME).so.$(VERSION) $(DESTDIR)$(prefix)/lib/lib$(NAME).so.$(MAJOR)
+	ldconfig -n $(DESTDIR)$(prefix)/lib/
 
