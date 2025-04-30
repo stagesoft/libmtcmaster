@@ -4,13 +4,13 @@ Source: https://github.com/stagesoft/libmtcmaster
 
 Files: *
 Copyright: 
-           2020 Stagelab www.stagelab.net
-           2020 ion@stagelab.net
+           2025 Stagelab www.stagelab.coop
+           2025 ion@stagelab.coop
            2020 aramosm@gmail.com
 License: GPL-3.0+
 
 Files: debian/*
-Copyright: 2020 Ion Reguera <ion@stagelab.net>
+Copyright: 2025 Ion Reguera <ion@stagelab.coop>
 License: GPL-3.0+
 
 License: GPL-3.0+

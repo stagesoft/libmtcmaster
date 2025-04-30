@@ -8,6 +8,8 @@ m.play()
 time.sleep(5)
 
 m.pause()
+m.settime(00)
+
 
 time.sleep(5)
 

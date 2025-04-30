@@ -1,0 +1,17 @@
+[Unit]
+Description=cuems-libmtcmaster
+PartOf=cuems-node.service
+Requires=cuems-nodeconf.service
+After=network-online.target cuems-nodeconf.service
+Wants=network-online.target cuems-nodeconf.service
+
+
+[Service]
+Type=notify
+NotifyAccess=main
+Restart=on-failure	
+ExecStart=/home/ion/.pyenv/versions/cuems/bin/python3 /src/sbin/mtcmaster_runner_async
+TimeoutSec=900
+
+[Install]
+WantedBy=default.target
