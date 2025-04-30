@@ -9,8 +9,9 @@ Wants=network-online.target cuems-nodeconf.service
 [Service]
 Type=notify
 NotifyAccess=main
-Restart=on-failure	
-ExecStart=/home/ion/.pyenv/versions/cuems/bin/python3 /src/sbin/mtcmaster_runner_async
+Restart=on-failure
+ExecStartPre=mkdir -p /tmp/cuems
+ExecStart=/usr/sbin/mtcmaster_runner_async
 TimeoutSec=900
 
 [Install]
