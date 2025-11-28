@@ -100,6 +100,11 @@ class MtcMaster : public RtMidiOut
     inline uint64_t getMtcTime (void) { return mtcTime; };
     void subtractNanos(const uint64_t diff);
     void addNanos(const uint64_t diff);
+    
+    // Network resync: set interval for periodic full frame messages (in frames)
+    // Recommended: 50 frames (2 sec at 25fps) for network. Set 0 to disable.
+    inline void setFullFrameResyncInterval(unsigned int frames) { fullFrameResyncInterval = frames; }
+    inline unsigned int getFullFrameResyncInterval(void) { return fullFrameResyncInterval; }
 
     //////////////////////////////////////////
     private:
@@ -113,6 +118,11 @@ class MtcMaster : public RtMidiOut
     uint64_t frameFreqNanos;        // Frame period in nanoseconds (precise for each frame rate)
     static std::mutex mtx;          // Mutex to lock the threaded function
     static bool playing;            // Flag to know if the object is playing
+    
+    // Network resync: send periodic full frame messages
+    // Default: every 2 seconds (50 frames at 25fps). Set to 0 to disable.
+    unsigned int fullFrameResyncInterval = 50;  // in frames
+    unsigned int framesSinceLastFullFrame = 0;
 
     //////////////////////////////////////////
     // Logging file

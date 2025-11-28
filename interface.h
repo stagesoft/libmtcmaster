@@ -33,6 +33,11 @@ void MTCSender_setFrameRate(void* mtcsender, int fps);
 
 int MTCSender_getFrameRate(void* mtcsender);
 
+// Network resync: set interval for periodic full frame messages (in frames)
+// Recommended: 50 frames (2 sec at 25fps) for network transport (rtpmidid)
+// Set to 0 to disable periodic full frames
+void MTCSender_setFullFrameResyncInterval(void* mtcsender, unsigned int frames);
+
 #if defined(__cplusplus)
 }
 #endif

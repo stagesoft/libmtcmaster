@@ -349,6 +349,14 @@ void MtcMaster::threadedMethod(void)
 
         // After a whole MTC message, 8 quarters, 2 frames, we update the MtcTimeVector
         fillMtcTimeVector(mtcTime);
+        
+        // Network resync: send periodic full frame messages for receivers to resync
+        // This helps recover from packet loss over network (rtpmidid, etc.)
+        framesSinceLastFullFrame += 2;  // We just sent 2 frames worth of quarter frames
+        if (fullFrameResyncInterval > 0 && framesSinceLastFullFrame >= fullFrameResyncInterval) {
+            sendMtcPosition();  // Send full frame SYSEX
+            framesSinceLastFullFrame = 0;
+        }
     }
 
     // If the thread has just stopped we adjust the time

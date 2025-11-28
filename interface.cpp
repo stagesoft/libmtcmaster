@@ -48,3 +48,7 @@
 /*extern "C"*/ int MTCSender_getFrameRate(void* mtcsender) {
     return static_cast<int>(static_cast<MtcMaster*>(mtcsender)->getFrameRate());
 }
+
+/*extern "C"*/ void MTCSender_setFullFrameResyncInterval(void* mtcsender, unsigned int frames) {
+    static_cast<MtcMaster*>(mtcsender)->setFullFrameResyncInterval(frames);
+}
