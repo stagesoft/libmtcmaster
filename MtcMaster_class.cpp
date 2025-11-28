@@ -7,6 +7,7 @@
 //////////////////////////////////////////////////////////
 
 #include "MtcMaster_class.h"
+#include <time.h>  // For clock_nanosleep, clock_gettime
 
 using namespace std;
 
@@ -34,15 +35,28 @@ MtcMaster::MtcMaster(   RtMidi::Api api,
     {
     case FR_24:
         currentFRBits = 0x00;
+        // Frame period: 1/24 second = 41666666.67 ns
+        frameFreqNanos = 41666667;
         break;
     case FR_25:
         currentFRBits = 0x20;
+        // Frame period: 1/25 second = 40000000 ns
+        frameFreqNanos = 40000000;
         break;
     case FR_29:
         currentFRBits = 0x40;
+        // Frame period for 29.97 drop-frame: 1001/30000 second = 33366666.67 ns
+        // More accurate than 1e9/29.97
+        frameFreqNanos = 33366667;
         break;
     case FR_30:
         currentFRBits = 0x60;
+        // Frame period: 1/30 second = 33333333.33 ns
+        frameFreqNanos = 33333333;
+        break;
+    default:
+        currentFRBits = 0x20;
+        frameFreqNanos = 40000000;
         break;
     }
 
@@ -193,6 +207,17 @@ void MtcMaster::setTime(uint64_t nanosecs = 0)
 }
 
 //--------------------------------------------------------------
+// Helper function to add nanoseconds to a timespec
+static inline void timespec_add_ns(struct timespec *ts, uint64_t ns)
+{
+    ts->tv_nsec += ns;
+    while (ts->tv_nsec >= 1000000000L) {
+        ts->tv_sec += 1;
+        ts->tv_nsec -= 1000000000L;
+    }
+}
+
+//--------------------------------------------------------------
 void MtcMaster::threadedMethod(void)
 {
     unsigned char c = 0;    // Working char variable to build the messages
@@ -200,30 +225,15 @@ void MtcMaster::threadedMethod(void)
     unsigned char byteType = 0;    // Message byte type parameter
     vector<unsigned char> mtcMessage {0,0}; // Message char vector
 
-    uint64_t initTime;      // Initial time for the playing loop
-    uint64_t currentTime;   // Current time in each round of loop
-    uint64_t nextQuarterToSend;
-
     // First send a full message with the current position
     sendMtcPosition();
 
-    initTime =     // Initial time for the playing loop
-        chrono::duration_cast<chrono::nanoseconds>(chrono::high_resolution_clock::now().time_since_epoch()).count();
+    // The quarter frame period in nanoseconds
+    uint64_t quarterFreq = frameFreqNanos / 4;
 
-    nextQuarterToSend = initTime; // First "next quarter" is init time
-
-    // The frequency of our frames in miliseconds
-    // depends on the Frame Rate we are using
-    // FR23.976 = 41,708333333 ms / frame
-    // FR25 = 40 ms / frame
-    // FR29.97 = 33,366700033 ms / frame
-    // FR30 = 33,333333333 ms / frame
-
-    // !!!!!!!!!!! By now we jus round it to a simple division
-    // !!!!!!!!!!! to be adjusted later
-    uint64_t frameFreq = 1e9 / currentFrameRate;
-
-    struct timespec delay = {0, 0};
+    // Use absolute time scheduling with clock_nanosleep for jitter-free timing
+    struct timespec nextQuarterTime;
+    clock_gettime(CLOCK_MONOTONIC, &nextQuarterTime);
 
     // Mutex lock
     mtx.lock();
@@ -232,9 +242,9 @@ void MtcMaster::threadedMethod(void)
     {
         ////////////////////////////////////////////////////////////////////////////////
         // Each quarter of frame we send a 2 bytes message with different contents
-        // and we need 8 messages to send the whoe MTC time code :
+        // and we need 8 messages to send the whole MTC time code :
         // 2 x system, 2 x hours, 2 x minutes, 2 x seconds & 2 x frames
-        // So we complet a MTC whole message after 8 quarters, thus every 2 frames
+        // So we complete a MTC whole message after 8 quarters, thus every 2 frames
         //
         // The structure of the message is as follows:
         // First byte = (F1) - Second byte = (<message>)
@@ -301,36 +311,40 @@ void MtcMaster::threadedMethod(void)
             }
 
             mtcMessage.push_back(MIDI_STATUS_TIME_CODE);  // Introducing the MTC code byte (F1)
-            mtcMessage.push_back(c);               // Then introducint the rest of the message
+            mtcMessage.push_back(c);               // Then introducing the rest of the message
 
             sendMessage( &mtcMessage );             // And then sending the message
 
-            // Calculation of next Quarter to send : last + 1/4 of the nanoseconds per frame
-            // nextQuarterToSend = lastQuarterSent + ((uint64_t)frameFreq / 4);
-            nextQuarterToSend += ((uint64_t)frameFreq / 4);
+            // Calculate the absolute time for the next quarter frame
+            timespec_add_ns(&nextQuarterTime, quarterFreq);
 
-            // Getting again the current time from the system
-            currentTime = chrono::duration_cast<chrono::nanoseconds>(chrono::high_resolution_clock::now().time_since_epoch()).count();
-
-            if (currentTime > nextQuarterToSend)
-            {
-                // We are out of time for the next quarter
-                logTime();
-                logFileStream << "TIME OUT!!! Curr Time: " << setw(22) << currentTime << " is > NextQ: " << setw(22) << nextQuarterToSend<< " Diff : " << setw(20) << (uint64_t) (currentTime - nextQuarterToSend) << endl;
+            // Use clock_nanosleep with TIMER_ABSTIME for precise, jitter-free timing
+            // This eliminates drift because we sleep until an absolute time,
+            // not for a relative duration. Any overshoot is automatically compensated.
+            int ret = clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &nextQuarterTime, NULL);
+            
+            if (ret != 0 && ret != EINTR) {
+                // Log timing errors (but don't spam the log)
+                static int errorCount = 0;
+                if (errorCount++ < 10) {
+                    logTime();
+                    logFileStream << "clock_nanosleep error: " << ret << endl;
+                }
             }
-            else
-            {
-                // We are on time, let's make a little delay
-                // to wait for the next quarter to send
-                // NOTE: We subtract another 1e5 nanoseconds more
-                // to be a bit in advance
-                delay.tv_nsec = nextQuarterToSend - currentTime;
 
-                nanosleep(&delay, NULL);
+            // Check if we're falling behind (for logging purposes)
+            struct timespec now;
+            clock_gettime(CLOCK_MONOTONIC, &now);
+            int64_t drift_ns = (now.tv_sec - nextQuarterTime.tv_sec) * 1000000000LL + 
+                               (now.tv_nsec - nextQuarterTime.tv_nsec);
+            
+            if (drift_ns > 1000000) {  // More than 1ms behind
+                logTime();
+                logFileStream << "TIME OUT!!! Behind by: " << drift_ns << " ns" << endl;
             }
 
             // We update the mtcTime after every quarter
-            mtcTime += ((uint64_t)frameFreq / 4);;
+            mtcTime += quarterFreq;
         }
 
         // After a whole MTC message, 8 quarters, 2 frames, we update the MtcTimeVector
@@ -341,7 +355,7 @@ void MtcMaster::threadedMethod(void)
     // to the last Time Vector used (+2 frames adjustment)
     // to build the message instead of adjusting the Vector
     // to a new mtcTime
-    mtcTime =   (uint64_t) ( mtcTimeVector[0] += 2 ) * frameFreq              // Frames adjusted
+    mtcTime =   (uint64_t) ( mtcTimeVector[0] += 2 ) * frameFreqNanos              // Frames adjusted
                 + (uint64_t) mtcTimeVector[1] * (uint64_t)1e9                // + Seconds
                 + (uint64_t) mtcTimeVector[2] * 60 * (uint64_t)1e9           // + minutes
                 + (uint64_t) mtcTimeVector[3] * 3600 * (uint64_t)1e9 ;       // + hours
@@ -355,23 +369,11 @@ void MtcMaster::threadedMethod(void)
 //--------------------------------------------------------------
 void MtcMaster::fillMtcTimeVector(uint64_t nanos)
 {
-    // The frequency of our frames in miliseconds
-    // depends on the Frame Rate we are using
-    // FR23.976 = 41,708333333 ms / frame
-    // FR25 = 40 ms / frame
-    // FR29.97 = 33,366700033 ms / frame
-    // FR30 = 33,333333333 ms / frame
-
-    // !!!!!!!!!!! ATTENTION
-    // !!!!!!!!!!! By now we jus round it to a simple division
-    // !!!!!!!!!!! to be adjusted later
-    uint64_t frameFreq = (uint64_t)1e9 / currentFrameRate;
-
     // First we clear our member vector
     mtcTimeVector.clear();
 
-    // And then fill it again
-    mtcTimeVector.push_back((uint64_t)(nanos / frameFreq) % currentFrameRate);     // FRAMES 0
+    // And then fill it again using the precise frame frequency
+    mtcTimeVector.push_back((uint64_t)(nanos / frameFreqNanos) % currentFrameRate);     // FRAMES 0
     mtcTimeVector.push_back((uint64_t)(nanos / (uint64_t)1e9) % 60);              // SECONDS 1
     mtcTimeVector.push_back((uint64_t)(nanos / (uint64_t)(60e9)) % 60);         // MINUTES 2
     mtcTimeVector.push_back((uint64_t)(nanos / (uint64_t)(3600e9)) % 24);      // HOURS 3
@@ -482,3 +484,32 @@ void MtcMaster::addNanos(const uint64_t diff) {
     setTime(mtcTime);
 }
 
+//--------------------------------------------------------------
+void MtcMaster::setFrameRate(FrameRate FR) {
+    currentFrameRate = FR;
+    
+    // Update frame frequency and MTC bits for the new frame rate
+    switch(FR)
+    {
+    case FR_24:
+        currentFRBits = 0x00;
+        frameFreqNanos = 41666667;  // 1/24 second
+        break;
+    case FR_25:
+        currentFRBits = 0x20;
+        frameFreqNanos = 40000000;  // 1/25 second
+        break;
+    case FR_29:
+        currentFRBits = 0x40;
+        frameFreqNanos = 33366667;  // 1001/30000 second (29.97 drop-frame)
+        break;
+    case FR_30:
+        currentFRBits = 0x60;
+        frameFreqNanos = 33333333;  // 1/30 second
+        break;
+    default:
+        currentFRBits = 0x20;
+        frameFreqNanos = 40000000;
+        break;
+    }
+}

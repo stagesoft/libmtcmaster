@@ -18,6 +18,7 @@
 #include <mutex>
 #include <iomanip>
 #include <cstring>
+#include <cerrno>
 #include <pthread.h>
 #include "rtmidi/RtMidi.h"
 
@@ -95,7 +96,7 @@ class MtcMaster : public RtMidiOut
     inline bool getPlaying(void) { return playing; }
     inline void setPlaying(bool status) { playing = status; }
     inline FrameRate getFrameRate(void) { return currentFrameRate; }
-    inline void setFrameRate(FrameRate FR) { currentFrameRate = FR; }
+    void setFrameRate(FrameRate FR);  // Also updates frameFreqNanos
     inline uint64_t getMtcTime (void) { return mtcTime; };
     void subtractNanos(const uint64_t diff);
     void addNanos(const uint64_t diff);
@@ -106,9 +107,10 @@ class MtcMaster : public RtMidiOut
 
     //////////////////////////////////////////
     // Private variables
-    uint64_t mtcTime;               // MTC time
-    FrameRate currentFrameRate;      // Current Frame Rate
-    unsigned char currentFRBits;   // Current Time code bits
+    uint64_t mtcTime;               // MTC time in nanoseconds
+    FrameRate currentFrameRate;     // Current Frame Rate
+    unsigned char currentFRBits;    // Current Time code bits for MTC messages
+    uint64_t frameFreqNanos;        // Frame period in nanoseconds (precise for each frame rate)
     static std::mutex mtx;          // Mutex to lock the threaded function
     static bool playing;            // Flag to know if the object is playing
 
