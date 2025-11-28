@@ -25,6 +25,14 @@ void MTCSender_pause(void* mtcsender);
 
 void MTCSender_setTime(void* mtcsender, uint64_t nanos);
 
+uint64_t MTCSender_getTime(void* mtcsender);
+
+// Frame rate: 24, 25, 29 (29.97 drop-frame), 30
+// Note: Currently fixed at 25 fps, but this allows future flexibility
+void MTCSender_setFrameRate(void* mtcsender, int fps);
+
+int MTCSender_getFrameRate(void* mtcsender);
+
 #if defined(__cplusplus)
 }
 #endif
