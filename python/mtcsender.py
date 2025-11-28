@@ -40,6 +40,18 @@ class MtcSender():
         self.fps = fps
         self.mtc_lib.MTCSender_setFrameRate(ctypes.c_void_p(self.mtcproc), ctypes.c_int(fps))
 
+    def set_network_resync(self, frames=50):
+        """Set periodic full frame resync interval for network transport (rtpmidid).
+        
+        Args:
+            frames: Interval in frames. Default 50 (2 sec at 25fps).
+                   Set to 0 to disable periodic resync.
+        
+        This helps receivers recover from packet loss over network.
+        """
+        self.mtc_lib.MTCSender_setFullFrameResyncInterval.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+        self.mtc_lib.MTCSender_setFullFrameResyncInterval(ctypes.c_void_p(self.mtcproc), ctypes.c_uint(frames))
+
     def settime(self, seconds):
         self.nanos = seconds * 1000000000 
         self.mtc_lib.MTCSender_setTime(ctypes.c_void_p(self.mtcproc), ctypes.c_uint64(self.nanos))
