@@ -1,3 +1,7 @@
+# ***
+# SPDX-FileCopyrightText: 2026 Stagelab Coop SCCL
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ***
 #Compiler, compiler flags and linker flags
 CXX = g++
 CXXFLAGS = -Wall -Werror -Wextra -std=c++17 -O3 -g -I . -I ..
