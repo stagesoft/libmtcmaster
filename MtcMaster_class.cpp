@@ -7,6 +7,7 @@
 //////////////////////////////////////////////////////////
 
 #include "MtcMaster_class.h"
+#include <iostream>  // std::cerr for the openPort fallback warning
 
 using namespace std;
 
@@ -47,7 +48,30 @@ MtcMaster::MtcMaster(   RtMidi::Api api,
     }
 
     try {
-        openPort(0, "MTCPort");
+        // Connect MTCPort to "Midi Through Port-0" BY NAME, not positional index 0.
+        // RtMidi openPort(0) trusts the enumeration order of writable ports, which at
+        // cold boot can be reordered/polluted (e.g. rtpmidid mirror ports named
+        // "rtpmidid:Midi Through-Midi Through Port-0"). When that happens the MTC
+        // sender gets subscribed to Midi Through via two paths and every quarter-frame
+        // is delivered twice, silently breaking MTC-following consumers
+        // (cuems-dmxplayer DMX dead). The real kernel port name starts with
+        // "Midi Through:". See ClickUp 869djtm9j.
+        unsigned int nPorts = getPortCount();
+        unsigned int target = 0;
+        bool found = false;
+        for ( unsigned int i = 0; i < nPorts; ++i ) {
+            if ( getPortName(i).rfind("Midi Through:", 0) == 0 ) {
+                target = i;
+                found = true;
+                break;
+            }
+        }
+        if ( !found ) {
+            std::cerr << "[libmtcmaster] WARNING: Midi Through output port not "
+                      << "found among " << nPorts << " ports; using index 0"
+                      << std::endl;
+        }
+        openPort( target, "MTCPort" );
     }
     catch ( RtMidiError &error ) {
         error.printMessage();
