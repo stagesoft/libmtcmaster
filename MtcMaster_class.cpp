@@ -8,6 +8,7 @@
 
 #include "MtcMaster_class.h"
 #include <iostream>  // std::cerr for the openPort fallback warning
+#include <time.h>    // clock_nanosleep, clock_gettime, TIMER_ABSTIME (precision timing)
 
 using namespace std;
 
@@ -35,15 +36,23 @@ MtcMaster::MtcMaster(   RtMidi::Api api,
     {
     case FR_24:
         currentFRBits = 0x00;
+        frameFreqNanos = 41666667;  // 1/24 s
         break;
     case FR_25:
         currentFRBits = 0x20;
+        frameFreqNanos = 40000000;  // 1/25 s
         break;
     case FR_29:
         currentFRBits = 0x40;
+        frameFreqNanos = 33366667;  // 1001/30000 s (29.97 drop-frame) — precise, not 1e9/29
         break;
     case FR_30:
         currentFRBits = 0x60;
+        frameFreqNanos = 33333333;  // 1/30 s
+        break;
+    default:
+        currentFRBits = 0x20;
+        frameFreqNanos = 40000000;
         break;
     }
 
@@ -82,29 +91,43 @@ MtcMaster::MtcMaster(   RtMidi::Api api,
         logFileStream.open("/run/log/libmtcmaster.log", std::ofstream::out | std::ofstream::app);
     }
     catch (system_error &error) {
-        exit( EXIT_FAILURE );
+        // Non-fatal: fall back to stderr below instead of aborting the engine.
     }
 
-    logFileStream << endl << endl << "________________________________________" << endl << endl;
+    // Route all logging to the file if it opened, else to stderr (journald).
+    // /run/log is root-owned; the engine runs as cuems and cannot open it, so
+    // without this fallback every log write (incl. SCHED_RR / timing
+    // diagnostics) silently no-ops. See ClickUp 869djtyzp.
+    if (logFileStream.is_open()) {
+        logStream = &logFileStream;
+    } else {
+        logStream = &std::cerr;
+        std::cerr << "[libmtcmaster] WARNING: cannot open /run/log/libmtcmaster.log; "
+                  << "logging to stderr" << std::endl;
+    }
+
+    *logStream << endl << endl << "________________________________________" << endl << endl;
     logTime();
-    logFileStream << "MTC Master Initialized" << endl << endl;
+    *logStream << "MTC Master Initialized" << endl << endl;
 }
 
 MtcMaster::~MtcMaster(void) {
     instanceCount--;
 
-    logFileStream << endl;
-    logTime();
-    logFileStream << "MTC Master finished succesfully" << endl << endl;
+    if (logStream) {
+        *logStream << endl;
+        logTime();
+        *logStream << "MTC Master finished succesfully" << endl << endl;
+    }
 
-    logFileStream.close();
+    if (logFileStream.is_open()) logFileStream.close();
 }
 
 ////////////////////////////////////////////
 // Member methods
 
 //--------------------------------------------------------------
-void MtcMaster::sendMtcPosition(void)
+void MtcMaster::sendMtcPosition(bool settleDelay)
 {
     /////////////////////////////////////////////////////////////////////
     // Sends a Full 10 bytes Message with the current MTC position
@@ -129,8 +152,12 @@ void MtcMaster::sendMtcPosition(void)
 
     this->sendMessage( &mtcFullMessage );
 
-    // A small pause to let the devices seek properly
-    std::this_thread::sleep_for(std::chrono::milliseconds(4));
+    // A small pause to let the devices seek properly — ONLY on seeks. The
+    // periodic network resync passes settleDelay=false: a 4ms hitch there would
+    // disrupt the cadence of the next quarter-frame every resync interval.
+    if (settleDelay) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(4));
+    }
 }
 
 //--------------------------------------------------------------
@@ -217,6 +244,16 @@ void MtcMaster::setTime(uint64_t nanosecs = 0)
 }
 
 //--------------------------------------------------------------
+// Helper: add nanoseconds to a timespec (normalising tv_nsec into [0,1e9)).
+static inline void timespec_add_ns(struct timespec *ts, uint64_t ns)
+{
+    ts->tv_nsec += ns;
+    while (ts->tv_nsec >= 1000000000L) {
+        ts->tv_sec += 1;
+        ts->tv_nsec -= 1000000000L;
+    }
+}
+
 void MtcMaster::threadedMethod(void)
 {
     unsigned char c = 0;    // Working char variable to build the messages
@@ -224,30 +261,15 @@ void MtcMaster::threadedMethod(void)
     unsigned char byteType = 0;    // Message byte type parameter
     vector<unsigned char> mtcMessage {0,0}; // Message char vector
 
-    uint64_t initTime;      // Initial time for the playing loop
-    uint64_t currentTime;   // Current time in each round of loop
-    uint64_t nextQuarterToSend;
-
     // First send a full message with the current position
     sendMtcPosition();
 
-    initTime =     // Initial time for the playing loop
-        chrono::duration_cast<chrono::nanoseconds>(chrono::high_resolution_clock::now().time_since_epoch()).count();
+    // The quarter frame period in nanoseconds (precise per frame rate)
+    uint64_t quarterFreq = frameFreqNanos / 4;
 
-    nextQuarterToSend = initTime; // First "next quarter" is init time
-
-    // The frequency of our frames in miliseconds
-    // depends on the Frame Rate we are using
-    // FR23.976 = 41,708333333 ms / frame
-    // FR25 = 40 ms / frame
-    // FR29.97 = 33,366700033 ms / frame
-    // FR30 = 33,333333333 ms / frame
-
-    // !!!!!!!!!!! By now we jus round it to a simple division
-    // !!!!!!!!!!! to be adjusted later
-    uint64_t frameFreq = 1e9 / currentFrameRate;
-
-    struct timespec delay = {0, 0};
+    // Absolute-time scheduling with clock_nanosleep for jitter-free timing.
+    struct timespec nextQuarterTime;
+    clock_gettime(CLOCK_MONOTONIC, &nextQuarterTime);
 
     // Mutex lock
     mtx.lock();
@@ -329,43 +351,53 @@ void MtcMaster::threadedMethod(void)
 
             sendMessage( &mtcMessage );             // And then sending the message
 
-            // Calculation of next Quarter to send : last + 1/4 of the nanoseconds per frame
-            // nextQuarterToSend = lastQuarterSent + ((uint64_t)frameFreq / 4);
-            nextQuarterToSend += ((uint64_t)frameFreq / 4);
+            // Absolute time for the next quarter frame
+            timespec_add_ns(&nextQuarterTime, quarterFreq);
 
-            // Getting again the current time from the system
-            currentTime = chrono::duration_cast<chrono::nanoseconds>(chrono::high_resolution_clock::now().time_since_epoch()).count();
-
-            if (currentTime > nextQuarterToSend)
-            {
-                // We are out of time for the next quarter
-                logTime();
-                logFileStream << "TIME OUT!!! Curr Time: " << setw(22) << currentTime << " is > NextQ: " << setw(22) << nextQuarterToSend<< " Diff : " << setw(20) << (uint64_t) (currentTime - nextQuarterToSend) << endl;
+            // clock_nanosleep with TIMER_ABSTIME: sleep until an absolute time,
+            // not a relative duration → no drift accumulation; any overshoot is
+            // auto-compensated on the next iteration.
+            int ret = clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &nextQuarterTime, NULL);
+            if (ret != 0 && ret != EINTR) {
+                static int errorCount = 0;
+                if (errorCount++ < 10) {       // don't spam the log
+                    logTime();
+                    *logStream << "clock_nanosleep error: " << ret << endl;
+                }
             }
-            else
-            {
-                // We are on time, let's make a little delay
-                // to wait for the next quarter to send
-                // NOTE: We subtract another 1e5 nanoseconds more
-                // to be a bit in advance
-                delay.tv_nsec = nextQuarterToSend - currentTime;
 
-                nanosleep(&delay, NULL);
+            // Drift check (logging only)
+            struct timespec now;
+            clock_gettime(CLOCK_MONOTONIC, &now);
+            int64_t drift_ns = (now.tv_sec - nextQuarterTime.tv_sec) * 1000000000LL +
+                               (now.tv_nsec - nextQuarterTime.tv_nsec);
+            if (drift_ns > 1000000) {  // more than 1ms behind
+                logTime();
+                *logStream << "TIME OUT!!! Behind by: " << drift_ns << " ns" << endl;
             }
 
             // We update the mtcTime after every quarter
-            mtcTime += ((uint64_t)frameFreq / 4);;
+            mtcTime += quarterFreq;
         }
 
         // After a whole MTC message, 8 quarters, 2 frames, we update the MtcTimeVector
         fillMtcTimeVector(mtcTime);
+
+        // Network resync: send a periodic full frame so receivers recover from
+        // packet loss (rtpmidid). NO-SETTLE variant — a 4ms hitch here would
+        // disrupt the next quarter-frame's cadence every interval.
+        framesSinceLastFullFrame += 2;  // we just sent 2 frames worth of quarter frames
+        if (fullFrameResyncInterval > 0 && framesSinceLastFullFrame >= fullFrameResyncInterval) {
+            sendMtcPosition(false);
+            framesSinceLastFullFrame = 0;
+        }
     }
 
     // If the thread has just stopped we adjust the time
     // to the last Time Vector used (+2 frames adjustment)
     // to build the message instead of adjusting the Vector
     // to a new mtcTime
-    mtcTime =   (uint64_t) ( mtcTimeVector[0] += 2 ) * frameFreq              // Frames adjusted
+    mtcTime =   (uint64_t) ( mtcTimeVector[0] += 2 ) * frameFreqNanos         // Frames adjusted
                 + (uint64_t) mtcTimeVector[1] * (uint64_t)1e9                // + Seconds
                 + (uint64_t) mtcTimeVector[2] * 60 * (uint64_t)1e9           // + minutes
                 + (uint64_t) mtcTimeVector[3] * 3600 * (uint64_t)1e9 ;       // + hours
@@ -379,23 +411,17 @@ void MtcMaster::threadedMethod(void)
 //--------------------------------------------------------------
 void MtcMaster::fillMtcTimeVector(uint64_t nanos)
 {
-    // The frequency of our frames in miliseconds
-    // depends on the Frame Rate we are using
-    // FR23.976 = 41,708333333 ms / frame
-    // FR25 = 40 ms / frame
-    // FR29.97 = 33,366700033 ms / frame
-    // FR30 = 33,333333333 ms / frame
-
-    // !!!!!!!!!!! ATTENTION
-    // !!!!!!!!!!! By now we jus round it to a simple division
-    // !!!!!!!!!!! to be adjusted later
-    uint64_t frameFreq = (uint64_t)1e9 / currentFrameRate;
+    // Frame period is the precise per-rate frameFreqNanos (set in the ctor /
+    // setFrameRate), not a 1e9/fps truncation.
+    // NOTE (pre-existing, both branches): FRAMES uses `% currentFrameRate`, so
+    // for FR_29 it emits frames 0-28 while the type bits declare 29.97df (30
+    // fps). Known limitation, out of scope here.
 
     // First we clear our member vector
     mtcTimeVector.clear();
 
-    // And then fill it again
-    mtcTimeVector.push_back((uint64_t)(nanos / frameFreq) % currentFrameRate);     // FRAMES 0
+    // And then fill it again using the precise frame frequency
+    mtcTimeVector.push_back((uint64_t)(nanos / frameFreqNanos) % currentFrameRate); // FRAMES 0
     mtcTimeVector.push_back((uint64_t)(nanos / (uint64_t)1e9) % 60);              // SECONDS 1
     mtcTimeVector.push_back((uint64_t)(nanos / (uint64_t)(60e9)) % 60);         // MINUTES 2
     mtcTimeVector.push_back((uint64_t)(nanos / (uint64_t)(3600e9)) % 24);      // HOURS 3
@@ -465,10 +491,16 @@ void MtcMaster::setScheduling(std::thread &th, int policy, int priority)
 
     if (pthread_setschedparam(th.native_handle(), policy, &sch_params) != 0)
     {
-
         logTime();
-        logFileStream  << "Failed to set Thread scheduling : " << error_code() << endl;
-        logFileStream << "Policy : " << policy << " Priority : " << sch_params.sched_priority << endl;
+        *logStream << "Failed to set Thread scheduling : " << error_code() << endl;
+        *logStream << "Policy : " << policy << " Priority : " << sch_params.sched_priority << endl;
+
+        // Visible degrade warning to stderr (journald) — the caller (play())
+        // catches this throw and continues on SCHED_OTHER, so RT failure was
+        // previously silent. MTC timing may jitter without RT scheduling.
+        std::cerr << "[libmtcmaster] WARNING: RT scheduling (SCHED_RR/"
+                  << priority << ") unavailable; MTC timing may jitter. Grant "
+                  << "CAP_SYS_NICE or rtprio limits to the engine user." << std::endl;
 
         throw RtMidiError("[ERR] libmtcmaster thread scheduling error", RtMidiError::Type::THREAD_ERROR);
     }
@@ -476,9 +508,41 @@ void MtcMaster::setScheduling(std::thread &th, int policy, int priority)
 
 //--------------------------------------------------------------
 void MtcMaster::logTime(void) {
+    if (!logStream) return;
     time_t now = time(nullptr);
 
-    logFileStream << put_time(localtime(&now), "%F %T") << " ";
+    *logStream << put_time(localtime(&now), "%F %T") << " ";
+}
+
+//--------------------------------------------------------------
+// Set the frame rate; also updates the precise frame period (frameFreqNanos)
+// and the MTC type bits (currentFRBits) so runtime rate changes are coherent.
+void MtcMaster::setFrameRate(FrameRate FR) {
+    currentFrameRate = FR;
+
+    switch(FR)
+    {
+    case FR_24:
+        currentFRBits = 0x00;
+        frameFreqNanos = 41666667;  // 1/24 s
+        break;
+    case FR_25:
+        currentFRBits = 0x20;
+        frameFreqNanos = 40000000;  // 1/25 s
+        break;
+    case FR_29:
+        currentFRBits = 0x40;
+        frameFreqNanos = 33366667;  // 1001/30000 s (29.97 drop-frame)
+        break;
+    case FR_30:
+        currentFRBits = 0x60;
+        frameFreqNanos = 33333333;  // 1/30 s
+        break;
+    default:
+        currentFRBits = 0x20;
+        frameFreqNanos = 40000000;
+        break;
+    }
 }
 
 //--------------------------------------------------------------

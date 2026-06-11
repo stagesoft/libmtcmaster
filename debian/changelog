@@ -1,7 +1,24 @@
+libmtcmaster (0.0.2-1) UNRELEASED; urgency=low
+
+  * Precision timing: clock_nanosleep(TIMER_ABSTIME) + precise per-rate frame
+    periods (frameFreqNanos), incl. correct 29.97 drop-frame (33366667 ns).
+  * Periodic full-frame resync for network transport (default 50 frames/2s);
+    new C API MTCSender_setFullFrameResyncInterval. Resync uses a no-settle
+    send so it does not disrupt quarter-frame cadence.
+  * New additive C API: MTCSender_getTime, MTCSender_setFrameRate,
+    MTCSender_getFrameRate (existing 7 symbols unchanged — ABI compatible).
+  * Fix log loss when /run/log is not writable by the engine user: fall back
+    to stderr (journald). Make SCHED_RR scheduling failure visible (warning).
+    (ClickUp 869djtyzp)
+  * Fix Makefile libmtcmaster.so.0 symlink target (was a broken .so.0.10 link).
+  * Ported from origin/jitter_improvement; preserves connect-by-name (869djtm9j).
+
+ -- Ion Reguera <ion@stagelab.coop>  Thu, 11 Jun 2026 10:55:36 +0200
+
 libmtcmaster (0.0.1-1) UNRELEASED; urgency=low
 
   * Fix Makefile install simlinks
-    
+
 
  -- Ion Reguera <ion@stagelab.net>  Tue, 16 Jun 2020 17:54:13 +0200
 

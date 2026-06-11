@@ -29,7 +29,7 @@ lib$(NAME).so: lib$(NAME).so.$(VERSION)
 	ln -sf lib$(NAME).so.$(VERSION) lib$(NAME).so
 
 lib$(NAME).so.$(MAJOR): lib$(NAME).so.$(VERSION)
-	ln -sf lib$(NAME).so.$(VERSION)$(MAJOR) lib$(NAME).so.$(MAJOR)
+	ln -sf lib$(NAME).so.$(VERSION) lib$(NAME).so.$(MAJOR)
 
 lib$(NAME).so.$(VERSION): $(OBJ)
 	$(CXX) -shared -Wl,-soname,lib$(NAME).so.$(MAJOR) $(OBJ) -o $@ $(LBLIBS)

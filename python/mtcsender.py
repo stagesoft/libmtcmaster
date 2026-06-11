@@ -2,7 +2,7 @@ import ctypes
 import pathlib
 
 
-###### Warp libmtcmaster library into python class
+###### Wrap libmtcmaster library into python class
 
 class MtcSender():
 
@@ -13,12 +13,15 @@ class MtcSender():
         self.mtc_lib.MTCSender_create.restype = ctypes.c_void_p
         
         self.mtcproc = self.mtc_lib.MTCSender_create()
-        self.port=port
-        self.char_portname=portname.encode('utf-8')
+        self.port = port
+        self.char_portname = portname.encode('utf-8')
         self.mtc_lib.MTCSender_openPort.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_char_p]
         self.mtc_lib.MTCSender_openPort(self.mtcproc, self.port, self.char_portname)
 
-        self.fps = fps #### TO DO; Pass fps to the library #########
+        # Set frame rate in the library
+        self.fps = fps
+        self.mtc_lib.MTCSender_setFrameRate.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        self.mtc_lib.MTCSender_setFrameRate(ctypes.c_void_p(self.mtcproc), ctypes.c_int(fps))
 
     def __del__(self): 
         self.mtc_lib.MTCSender_release(ctypes.c_void_p(self.mtcproc))
@@ -31,6 +34,23 @@ class MtcSender():
 
     def stop(self):
         self.mtc_lib.MTCSender_stop(ctypes.c_void_p(self.mtcproc))
+
+    def setframerate(self, fps):
+        """Set frame rate: 24, 25, 29 (29.97 drop-frame), or 30"""
+        self.fps = fps
+        self.mtc_lib.MTCSender_setFrameRate(ctypes.c_void_p(self.mtcproc), ctypes.c_int(fps))
+
+    def set_network_resync(self, frames=50):
+        """Set periodic full frame resync interval for network transport (rtpmidid).
+        
+        Args:
+            frames: Interval in frames. Default 50 (2 sec at 25fps).
+                   Set to 0 to disable periodic resync.
+        
+        This helps receivers recover from packet loss over network.
+        """
+        self.mtc_lib.MTCSender_setFullFrameResyncInterval.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+        self.mtc_lib.MTCSender_setFullFrameResyncInterval(ctypes.c_void_p(self.mtcproc), ctypes.c_uint(frames))
 
     def settime(self, seconds):
         self.nanos = seconds * 1000000000 

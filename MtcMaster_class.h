@@ -18,6 +18,7 @@
 #include <mutex>
 #include <iomanip>
 #include <cstring>
+#include <cerrno>
 #include <pthread.h>
 #include "rtmidi/RtMidi.h"
 
@@ -82,7 +83,10 @@ class MtcMaster : public RtMidiOut
 
     //////////////////////////////////////////
     // Member methods
-    void sendMtcPosition();
+    // settleDelay: 4ms pause after the full frame to let devices seek. true for
+    // seeks (setTime, play-start); false for the periodic network resync (where
+    // a 4ms hitch would disrupt the very next quarter-frame's cadence).
+    void sendMtcPosition(bool settleDelay = true);
     void play();
     void pause();
     void stop();
@@ -95,10 +99,16 @@ class MtcMaster : public RtMidiOut
     inline bool getPlaying(void) { return playing; }
     inline void setPlaying(bool status) { playing = status; }
     inline FrameRate getFrameRate(void) { return currentFrameRate; }
-    inline void setFrameRate(FrameRate FR) { currentFrameRate = FR; }
+    void setFrameRate(FrameRate FR);  // Also updates frameFreqNanos + currentFRBits
     inline uint64_t getMtcTime (void) { return mtcTime; };
     void subtractNanos(const uint64_t diff);
     void addNanos(const uint64_t diff);
+
+    // Network resync: set interval for periodic full frame messages (in frames).
+    // Recommended 50 frames (2 s at 25fps) for network transport (rtpmidid).
+    // Set 0 to disable.
+    inline void setFullFrameResyncInterval(unsigned int frames) { fullFrameResyncInterval = frames; }
+    inline unsigned int getFullFrameResyncInterval(void) { return fullFrameResyncInterval; }
 
     //////////////////////////////////////////
     private:
@@ -106,15 +116,24 @@ class MtcMaster : public RtMidiOut
 
     //////////////////////////////////////////
     // Private variables
-    uint64_t mtcTime;               // MTC time
-    FrameRate currentFrameRate;      // Current Frame Rate
-    unsigned char currentFRBits;   // Current Time code bits
+    uint64_t mtcTime;               // MTC time in nanoseconds
+    FrameRate currentFrameRate;     // Current Frame Rate
+    unsigned char currentFRBits;    // Current Time code bits for MTC messages
+    uint64_t frameFreqNanos;        // Frame period in nanoseconds (precise per frame rate)
     static std::mutex mtx;          // Mutex to lock the threaded function
     static bool playing;            // Flag to know if the object is playing
 
+    // Network resync: send periodic full frame messages (default every 2 s =
+    // 50 frames at 25fps). Set 0 to disable.
+    unsigned int fullFrameResyncInterval = 50;  // in frames
+    unsigned int framesSinceLastFullFrame = 0;
+
     //////////////////////////////////////////
-    // Logging file
+    // Logging. logStream points at logFileStream when /run/log is writable,
+    // else at std::cerr (journald) so SCHED_RR / timing diagnostics survive
+    // when the engine (running as cuems) cannot open the root-owned log file.
     std::ofstream logFileStream;
+    std::ostream* logStream = nullptr;
 
     void logTime(void);
     
