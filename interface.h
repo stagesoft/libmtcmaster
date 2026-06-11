@@ -23,11 +23,16 @@ void MTCSender_stop(void* mtcsender);
 
 void MTCSender_pause(void* mtcsender);
 
+// Seek the transport. CALL ONLY BEFORE MTCSender_play(): setTime stops the
+// sender thread and writes mtcTime; calling it while playing is a seek path that
+// the soak harness uses pre-play, not a runtime control.
 void MTCSender_setTime(void* mtcsender, uint64_t nanos);
 
 uint64_t MTCSender_getTime(void* mtcsender);
 
-// Frame rate: 24, 25, 29 (29.97 drop-frame), 30
+// Frame rate: 24, 25, 29 (29.97 drop-frame), 30.
+// CALL ONLY BEFORE MTCSender_play(): a mid-play rate change is refused (no-op +
+// warning) because the timing loop caches the quarter-frame period at start.
 void MTCSender_setFrameRate(void* mtcsender, int fps);
 
 int MTCSender_getFrameRate(void* mtcsender);

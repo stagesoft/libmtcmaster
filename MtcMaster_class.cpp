@@ -267,12 +267,16 @@ void MtcMaster::threadedMethod(void)
     // The quarter frame period in nanoseconds (precise per frame rate)
     uint64_t quarterFreq = frameFreqNanos / 4;
 
-    // Absolute-time scheduling with clock_nanosleep for jitter-free timing.
-    struct timespec nextQuarterTime;
-    clock_gettime(CLOCK_MONOTONIC, &nextQuarterTime);
-
     // Mutex lock
     mtx.lock();
+
+    // Absolute-time scheduling with clock_nanosleep for jitter-free timing.
+    // Capture the baseline AFTER acquiring the lock — if mtx.lock() blocks (e.g.
+    // a double-play startup), a baseline taken before would already be in the
+    // past, and the first clock_nanosleep(TIMER_ABSTIME) would return instantly,
+    // firing a quarter-frame burst. (Plan 5 / audit MAJOR-1)
+    struct timespec nextQuarterTime;
+    clock_gettime(CLOCK_MONOTONIC, &nextQuarterTime);
 
     while(playing)
     {
@@ -518,6 +522,15 @@ void MtcMaster::logTime(void) {
 // Set the frame rate; also updates the precise frame period (frameFreqNanos)
 // and the MTC type bits (currentFRBits) so runtime rate changes are coherent.
 void MtcMaster::setFrameRate(FrameRate FR) {
+    // Only safe BEFORE play(): threadedMethod captures quarterFreq once at thread
+    // entry and reads currentFRBits per quarter-frame, so changing the rate while
+    // playing would desync the period from the frame numbering AND race the three
+    // unlocked field writes below. Refuse mid-play. (Plan 5 / audit MAJOR-2)
+    if (playing) {
+        *logStream << "WARNING: setFrameRate() ignored while playing; "
+                      "call it before play()." << std::endl;
+        return;
+    }
     currentFrameRate = FR;
 
     switch(FR)
